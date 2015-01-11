@@ -1,1 +1,1 @@
-# PyQGField
+# pyqgfield
