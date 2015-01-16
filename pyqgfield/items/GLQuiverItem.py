@@ -14,7 +14,7 @@ class GLQuiverItem(GLGraphicsItem):
                         vector placed at pts[i]
         ============== =====================================================
         """
-        self.arrows=None
+        self.arrows=[]
         GLGraphicsItem.__init__(self)
         self.setData(**kwds)
         
@@ -23,26 +23,41 @@ class GLQuiverItem(GLGraphicsItem):
     def setData(self, **kwds):
         if len(kwds)==0:
             return
-        try:
+        if 'points' in kwds:
             points=array(kwds.pop('points'))
+            #make sure  points is (N,3)
+            if not shape(points)[1]==3:
+                print('Points must be (N,3) array.')
+                return
+            #if self.arrows isn't instantiated, instantiate it from points, and set 
+            #parent item to this instance of quiverItem
+            elif not len(self.arrows)==len(points):
+                self.arrows=[GLArrowItem() for i in range(len(points))]
+                for arrow in self.arrows:
+                    arrow.setParentItem(self)
+            #update point values in self.arrows
+            i=0
+            for point in points:
+                self.arrows[i].updateData(point=point)
+                i+=1
+        if 'vectors' in kwds:
             vectors=array(kwds.pop('vectors'))
-        except KeyError:
-            print('Invalid Key')
-            return
-        if (not shape(points)[1]==3) or (not shape(points)==shape(vectors)):
-            print('Invalid vector dimensions. Points and Vectors must be (N,3) in shape')
-            return
-        
-        #update point and vector of each arrow in self.arrows
-        if (self.arrows is None) or (not len(self.arrows)==len(points)):
-            self.arrows=[GLArrowItem() for i in range(len(points))]
-            for arrow in self.arrows:
-                arrow.setParentItem(self)
-        i=0
-        for row in points:
-            self.arrows[i].updateData(point=points[i],vector=vectors[i])
-            i+=1
-            
+            #make sure vectors is (N,3)
+            if not shape(vectors)[1]==3:
+                print('Vectors must be (N,3) array')
+                return
+            #make sure vectors is same length as self.arrows
+            elif not len(self.arrows)==len(vectors):
+                print(
+                    'Expected vector argument with ' + str(len(self.arrows))
+                    +' rows, but got argument with '+ str(len(vectors)) + ' rows'
+                )
+            #update vector values in self.arrows
+            i=0
+            for vector in vectors:
+                self.arrows[i].updateData(vector=vector)
+                i+=1
+        #update view
         self.update()
             
     
