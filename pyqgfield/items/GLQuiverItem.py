@@ -1,3 +1,6 @@
+import pycuda.driver as cuda
+import pycuda.autoinit
+from pycuda.compiler import SourceModule
 from pyqgfield.items import GLArrowItem
 from pyqtgraph.opengl.GLGraphicsItem import GLGraphicsItem
 from numpy import *
@@ -41,6 +44,13 @@ class GLQuiverItem(GLGraphicsItem):
                 self.arrows[i].updateData(point=point)
                 i+=1
         if 'vectors' in kwds:
+            times={
+                'mapToLocal': 0.,
+                'cross':0.,
+                'calcAngle':0.,
+                'rotate':0.,
+                'scl':0.
+            }
             vectors=array(kwds.pop('vectors'))
             #make sure vectors is (N,3)
             if not shape(vectors)[1]==3:
@@ -55,13 +65,26 @@ class GLQuiverItem(GLGraphicsItem):
             #update vector values in self.arrows
             i=0
             for vector in vectors:
-                self.arrows[i].updateData(vector=vector)
+                curTimes=self.arrows[i].updateData(vector=vector)
+                for opt in ['mapToLocal','cross','calcAngle','rotate','scl']:
+                    times[opt]+=curTimes.pop(opt)*1000
                 i+=1
         #update view
         self.update()
+        return times
             
     
-
+    def _haSet(self, vectors=[]):
+        mod=SourceModule("""
+            __global__ void transform()
+        """)
+    
+    
+    
+    
+    
+    
+    
     def random(self, shells):
         th=pi*random.random()
         phi=2*pi*random.random()

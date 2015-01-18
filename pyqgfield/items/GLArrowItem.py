@@ -1,5 +1,6 @@
 from pyqtgraph.opengl import GLLinePlotItem, GLMeshItem
 from numpy import *
+import time
 
 
 __all__=['GLArrowItem']
@@ -55,6 +56,7 @@ class GLArrowItem(GLMeshItem):
 
 
     def updateData(self, **kwds):
+        times={}
         if 'point' in kwds:
             point=array(kwds.pop('point'))#updated point in parent coordinates
             #translate the item to the coordinates in **kwds
@@ -62,32 +64,47 @@ class GLArrowItem(GLMeshItem):
                 dx=point[0]-self.point[0],
                 dy=point[1]-self.point[1],
                 dz=point[2]-self.point[2],
-                local=False
                 )
             #update current point
             self.point=point
-        
         if 'vector' in kwds:
             pvector=array(kwds.pop('vector'))#updated vector in parent coordinates
             if not linalg.norm(pvector)==0:
+                
+                start=time.time()
                 #map pvector to item's local coordinates and calculate rotation axis using cross product
-                lvector=self.transform().inverted()[0].map(vstack(pvector))
+                lvector=self.mapFromParent(vstack(pvector))
                 lvector=lvector.flatten()/linalg.norm(lvector) #normalize
+                times['mapToLocal']=time.time()-start
+                
+                start=time.time()
                 axis=cross(array([0,0,1]),lvector)
-
+                times['cross']=time.time()-start
+                
+                start=time.time()
                 #calculate rotation angle from cross product result accounting for angles that are >90
                 angle=0
                 if linalg.norm([lvector-array([0,0,1])])>sqrt(2):
                     angle=180-arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180/pi)
                 else:
                     angle+=arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180/pi)
+                times['calcAngle']=time.time()-start
                 
+                start=time.time()
                 #rotate item using calculated axis and angle
-                self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=True)
+                axis=self.mapToParent(vstack(axis))
+                self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=False)
+                times['rotate']=time.time()-start
+            
+            
+            start=time.time()
             #scale item to length of inputed vector
             self._resize(pvector)
+            times['scl']=time.time()-start
+            
             #update current vector
             self.vector=pvector
+            return times
             
         
 
@@ -133,7 +150,7 @@ class GLArrowItem(GLMeshItem):
             [dx,dy]=[linalg.norm(self.vector)**-1, linalg.norm(self.vector)**-1]
         
         #scale using superclass function
-        GLMeshItem.scale(self, dx, dy, dz)
+        self.scale(self, dx, dy, dz, local=True)
         
     def _scaleDown(self, vector):
         #calculate z scale
@@ -153,7 +170,7 @@ class GLArrowItem(GLMeshItem):
             [dx,dy]=[linalg.norm(vector), linalg.norm(vector)]
         
         #scale using superclass function
-        GLMeshItem.scale(self, dx, dy, dz)
+        self.scale(self, dx, dy, dz, local=True)
         
         
         
