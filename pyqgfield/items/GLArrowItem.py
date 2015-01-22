@@ -62,12 +62,13 @@ class GLArrowItem(GLMeshItem):
     def updateData(self, **kwds):
         times={}
         if 'point' in kwds:
+            self.logged=False
             log.info('Found point in args. Updating point...') if self.logged else None
             point=array(kwds.pop('point'))#updated point in parent coordinates
             log.debug(
                 'Attempting to translate point from [%f,%f,%f](parent) to [%f,%f,%f](parent)',
-                float(self.point[0]),float(self.point[1]),float(self.point[2]),
-                float(point[0]),float(point[1]),float(point[2])
+                self.point[0],self.point[1], self.point[2],
+                point[0],point[1],point[2]
                 ) if self.logged else None
             #translate the item to the coordinates in **kwds
             dx=point[0]-self.point[0];dy=point[1]-self.point[1];dz=point[2]-self.point[2]
@@ -77,6 +78,8 @@ class GLArrowItem(GLMeshItem):
             self.point=point
             log.info('Finished attempt at moving point') if self.logged else None
         if 'vector' in kwds:
+            self.logged=True
+            log.info('Found vector in args. Attempting to transform vector (software)...') if self.logged else None
             pvector=array(kwds.pop('vector'))#updated vector in parent coordinates
             if not linalg.norm(pvector)==0:
                 
@@ -87,21 +90,21 @@ class GLArrowItem(GLMeshItem):
                 times['mapToLocal']=time.time()-start
                 
                 start=time.time()
-                axis=cross(array([0,0,1]),lvector)
+                axis=cross(array([0.,0.,1.]),lvector)
                 times['cross']=time.time()-start
                 
                 start=time.time()
                 #calculate rotation angle from cross product result accounting for angles that are >90
-                angle=0
-                if linalg.norm([lvector-array([0,0,1])])>sqrt(2):
-                    angle=180-arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180/pi)
+                angle=0.
+                if linalg.norm([lvector-array([0.,0.,1.])])>sqrt(2):
+                    angle=180.-arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180./pi)
                 else:
-                    angle+=arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180/pi)
+                    angle+=arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180./pi)
                 times['calcAngle']=time.time()-start
                 
                 start=time.time()
                 #rotate item using calculated axis and angle
-                axis=self.mapToParent(vstack(axis))
+                #axis=self.mapToParent(vstack(axis))
                 self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=True)
                 times['rotate']=time.time()-start
             
