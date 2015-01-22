@@ -1,9 +1,11 @@
 from pyqtgraph.opengl import GLLinePlotItem, GLMeshItem
 from numpy import *
 import time
-
+import logging
+import pyqgfield
 
 __all__=['GLArrowItem']
+log=logging.getLogger(__name__)
 
 class GLArrowItem(GLMeshItem):
 
@@ -13,6 +15,7 @@ class GLArrowItem(GLMeshItem):
         Arguments
         point             (1,3) array [x,y,z] specifying point coordinates
         vector            (1,3) array [vx,vy,vz] specifying the vector at the given point
+        logged            boolean specifying if arrow should log to file
         ============== =====================================================
         """
     #create arrowhead
@@ -49,8 +52,9 @@ class GLArrowItem(GLMeshItem):
             shader='shaded',
             glOptions='opaque'
             )
-        self.vector=array([0,0,1])
-        self.point=array([0,0,0])
+        self.logged=kwds.pop('logged') if ('logged' in kwds) else False
+        self.vector=array([0.,0.,1.])
+        self.point=array([0.,0.,0.])
         if 'point' in kwds and 'vector' in kwds:
             self.updateData(**kwds)
 
@@ -58,15 +62,20 @@ class GLArrowItem(GLMeshItem):
     def updateData(self, **kwds):
         times={}
         if 'point' in kwds:
+            log.info('Found point in args. Updating point...') if self.logged else None
             point=array(kwds.pop('point'))#updated point in parent coordinates
+            log.debug(
+                'Attempting to translate point from [%f,%f,%f](parent) to [%f,%f,%f](parent)',
+                float(self.point[0]),float(self.point[1]),float(self.point[2]),
+                float(point[0]),float(point[1]),float(point[2])
+                ) if self.logged else None
             #translate the item to the coordinates in **kwds
-            self.translate(
-                dx=point[0]-self.point[0],
-                dy=point[1]-self.point[1],
-                dz=point[2]-self.point[2],
-                )
+            dx=point[0]-self.point[0];dy=point[1]-self.point[1];dz=point[2]-self.point[2]
+            log.debug('Translating x by %f, y by %f, z by %f...',dx,dy,dz) if self.logged else None
+            self.translate(dx=dx,dy=dy,dz=dz)
             #update current point
             self.point=point
+            log.info('Finished attempt at moving point') if self.logged else None
         if 'vector' in kwds:
             pvector=array(kwds.pop('vector'))#updated vector in parent coordinates
             if not linalg.norm(pvector)==0:
@@ -93,7 +102,7 @@ class GLArrowItem(GLMeshItem):
                 start=time.time()
                 #rotate item using calculated axis and angle
                 axis=self.mapToParent(vstack(axis))
-                self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=False)
+                self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=True)
                 times['rotate']=time.time()-start
             
             
@@ -150,7 +159,7 @@ class GLArrowItem(GLMeshItem):
             [dx,dy]=[linalg.norm(self.vector)**-1, linalg.norm(self.vector)**-1]
         
         #scale using superclass function
-        self.scale(self, dx, dy, dz, local=True)
+        self.scale(dx, dy, dz)
         
     def _scaleDown(self, vector):
         #calculate z scale
@@ -170,9 +179,12 @@ class GLArrowItem(GLMeshItem):
             [dx,dy]=[linalg.norm(vector), linalg.norm(vector)]
         
         #scale using superclass function
-        self.scale(self, dx, dy, dz, local=True)
+        self.scale( dx, dy, dz)
         
-        
+    def getVector(self):
+         return self.vector
+    def getPoint(self):
+        return self.point
         
         
         

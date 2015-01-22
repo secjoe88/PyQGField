@@ -4,21 +4,28 @@ from pycuda.compiler import SourceModule
 from pyqgfield.items import GLArrowItem
 from pyqtgraph.opengl.GLGraphicsItem import GLGraphicsItem
 from numpy import *
+import pyqgfield
+import logging
+import time
 
 __all__=['GLQuiverItem']
+log=logging.getLogger(__name__)
+
 class GLQuiverItem(GLGraphicsItem):
     def __init__(self, **kwds):
         """
         ============== =====================================================
         Arguments
-        points             (N,3) array points[i]=[xi,yi,zi] specifying where to place
-                        vectors
-        vectors            (N,3) array vectors[i]=[vx_i,vy_i,vz_i] specifying the
-                        vector placed at pts[i]
+        points              (N,3) array points[i]=[xi,yi,zi] specifying where to place
+                            vectors
+        vectors             (N,3) array vectors[i]=[vx_i,vy_i,vz_i] specifying the
+                            vector placed at pts[i]
+        logged              bool determining if this session be logged to file
         ============== =====================================================
         """
         self.arrows=[]
         GLGraphicsItem.__init__(self)
+        self.logged=kwds.pop('logged') if ('logged' in kwds) else False
         self.setData(**kwds)
         
         
@@ -62,16 +69,23 @@ class GLQuiverItem(GLGraphicsItem):
                     'Expected vector argument with ' + str(len(self.arrows))
                     +' rows, but got argument with '+ str(len(vectors)) + ' rows'
                 )
+                return
             #update vector values in self.arrows
+            log.info('Updating values for %d arrows...',len(self.arrows)) if self.logged else None
+            start=time.time()
             i=0
             for vector in vectors:
                 curTimes=self.arrows[i].updateData(vector=vector)
                 for opt in ['mapToLocal','cross','calcAngle','rotate','scl']:
                     times[opt]+=curTimes.pop(opt)*1000
                 i+=1
+            end=time.time()-start
+            for opt in times:
+                log.debug('%d %s steps calculated in %d ms',len(self.arrows),opt,times[opt]*1000)
+            log.info('%d arrows updated in %f ms',len(self.arrows),end*1000) if self.logged else None
         #update view
         self.update()
-        return times
+        
             
     
     def _haSet(self, vectors=[]):
