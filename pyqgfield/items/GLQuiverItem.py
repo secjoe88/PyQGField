@@ -85,7 +85,7 @@ class GLQuiverItem(GLGraphicsItem):
             log.info('%d arrows updated in %f ms',len(self.arrows),end*1000) if self.logged else None
         #update view
         self.update()
-        
+        return times
             
     
     def _haSet(self, vectors=[]):

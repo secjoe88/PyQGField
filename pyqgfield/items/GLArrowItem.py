@@ -81,16 +81,19 @@ class GLArrowItem(GLMeshItem):
             self.logged=True
             log.info('Found vector in args. Attempting to transform vector (software)...') if self.logged else None
             pvector=array(kwds.pop('vector'))#updated vector in parent coordinates
+            log.debug('Found vector [%f,%f,%f] in args under \'vector\'',pvector[0],pvector[1],pvector[2])if self.logged else None
             if not linalg.norm(pvector)==0:
                 
                 start=time.time()
                 #map pvector to item's local coordinates and calculate rotation axis using cross product
-                lvector=self.mapFromParent(vstack(pvector))
+                lvector=self.mapFromParent(vstack(pvector+self.point))
                 lvector=lvector.flatten()/linalg.norm(lvector) #normalize
+                log.debug('Mapped vector to local coordinates as [%f,%f,%f]',lvector[0],lvector[1],lvector[2]) if self.logged else None
                 times['mapToLocal']=time.time()-start
                 
                 start=time.time()
                 axis=cross(array([0.,0.,1.]),lvector)
+                log.debug('Calculated unit cross product vector as [%f,%f,%f',axis[0],axis[1],axis[2]) if self.logged else None
                 times['cross']=time.time()-start
                 
                 start=time.time()
@@ -100,18 +103,18 @@ class GLArrowItem(GLMeshItem):
                     angle=180.-arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180./pi)
                 else:
                     angle+=arcsin(linalg.norm(axis)/(linalg.norm(lvector)))*(180./pi)
+                log.debug('Calculated rotaton angle as %f',angle) if self.logged else None
                 times['calcAngle']=time.time()-start
                 
                 start=time.time()
                 #rotate item using calculated axis and angle
-                #axis=self.mapToParent(vstack(axis))
                 self.rotate(angle=angle,x=axis[0],y=axis[1],z=axis[2], local=True)
                 times['rotate']=time.time()-start
             
             
             start=time.time()
             #scale item to length of inputed vector
-            self._resize(pvector)
+            #self._resize(pvector)
             times['scl']=time.time()-start
             
             #update current vector
