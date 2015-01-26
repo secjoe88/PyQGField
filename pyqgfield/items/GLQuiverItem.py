@@ -76,19 +76,27 @@ class GLQuiverItem(GLGraphicsItem):
             #update vector values in self.arrows
             log.info('Updating values for %d arrows...',len(self.arrows)) if self.logged else None
             start=time.time()
-            i=0
-            for vector in vectors:
-                if self.ha:
-                    self._haSet(vectors)
-                else:
+            
+            if self.ha:
+                #use hardware acceleration if it is enabled
+                self._haSet(vectors)
+                end=time.time()-start
+            else:
+                #otherwise update vectors in software
+                i=0
+                for vector in vectors:
                     curTimes=self.arrows[i].updateData(vector=vector)
                     for opt in ['mapToLocal','cross','calcAngle','rotate','scl']:
                         times[opt]+=curTimes.pop(opt)*1000
                     i+=1
-            end=time.time()-start
-            for opt in times:
-                log.debug('%d %s steps calculated in %d ms',len(self.arrows),opt,times[opt]*1000)
+                end=time.time()-start
+                #log specifics to file to file
+                for opt in times:
+                    log.debug('%d %s steps calculated in %d ms',len(self.arrows),opt,times[opt])
+                
+            #log elapsed time to file        
             log.info('%d arrows updated in %f ms',len(self.arrows),end*1000) if self.logged else None
+        
         #update view
         self.update()
         return times
@@ -99,7 +107,7 @@ class GLQuiverItem(GLGraphicsItem):
         
         #extract arrow vectors from self.arrows and put into a gpu vector
         vecs=vstack([append(arrow.getVector(),1).astype(float32) for arrow in self.arrows])
-        log.debug('Extracted vectors from self.arrows. Vecs:\n%s',str(vecs)) if self.logged else None
+        log.debug('Extracted vectors from self.arrows. Vecs:\n%s\n...',str(vecs[0:3])) if self.logged else None
         vecs_gpu=cuda.mem_alloc(vecs.nbytes)
         cuda.memcpy_htod(vecs_gpu, vecs)
         
@@ -110,30 +118,34 @@ class GLQuiverItem(GLGraphicsItem):
         cuda.memcpy_htod(transMat_gpu, transMat)
         
         #allocate gpu memory for output lvec
-        lvecs_gpu=cuda.mem_alloc(zeros([len(vecs[0]),3]).astype(float32).nbytes)
+        lvecs_gpu=cuda.mem_alloc(zeros([len(vecs),3]).astype(float32).nbytes)
         #CUDA kernel module
         mod=SourceModule("""
             __global__ void mapFromParent(float pvec[][4], float mat[4][4], float lvec[][3]){
                 int idx=threadIdx.x;
                 float temp[4];
-                for (i=0; i<4; i++){
-                temp[i]=mat[i][0]*pvec[idx][0]+mat[i][1]*pvec[idx][1]+mat[i][2]*pvec[idx][2]+mat[i][3]*pvec[idx][3]
+                for (int i=0; i<4; i++){
+                    temp[i]=mat[i][0]*pvec[idx][0]+mat[i][1]*pvec[idx][1]+mat[i][2]*pvec[idx][2]+mat[i][3]*pvec[idx][3];
                 }
-                for (i=0;i<3;i++)
-                    lvec[idx][i]=temp[i]
+                for (int i=0;i<3;i++)
+                    lvec[idx][i]=temp[i];
             }
         """)
-        #get and run function to map from parent to local coordinates
+        #get and run gpu function to map from parent to local coordinates
+        log.info('Mapping parent vector to local vector coordinates...')
         log.debug('Attempting cuda function compile...') if self.logged else None
         mapFP=mod.get_function("mapFromParent")
-        log.debug('Cuda function compiled!') if self.logged else None
-        log.debug('Attempting cuda function run...') if self.logged else None
-        mapFP(vecs_gpu,transMat_gpu,lvecs_gpu,blocks=(len(vecs[0]),1,1))
+        log.debug('Cuda function compiled! Attempting cuda function run...') if self.logged else None
+        mapFP(vecs_gpu,transMat_gpu,lvecs_gpu,block=(len(vecs),1,1))
         log.debug('Cuda function ran!') if self.logged else None
+        
+        #retrieve results from gpu memory
         log.info('Extracting result from gpu memory...') if self.logged else None
-        lvecs=empty([len(vecs[0]),3])
+        lvecs=empty([len(vecs),3]).astype(float32)
+        log.debug('Created container for vectors in local memory as:\n%s\n...',str(lvecs[0:3])) if self.logged else None
         cuda.memcpy_dtoh(lvecs,lvecs_gpu)
-        log.debug('Extracted results from gpu memory as:\n%s',str(lvecs)) if self.logged else None
+        log.debug('Extracted results from gpu memory as:\n%s\n...',str(lvecs[0:3])) if self.logged else None
+        log.info('Succesful map')
     
     
     

@@ -78,7 +78,7 @@ class GLArrowItem(GLMeshItem):
             self.point=point
             log.info('Finished attempt at moving point') if self.logged else None
         if 'vector' in kwds:
-            self.logged=True
+            self.logged=False
             log.info('Found vector in args. Attempting to transform vector (software)...') if self.logged else None
             pvector=array(kwds.pop('vector'))#updated vector in parent coordinates
             log.debug('Found vector [%f,%f,%f] in args under \'vector\'',pvector[0],pvector[1],pvector[2])if self.logged else None
