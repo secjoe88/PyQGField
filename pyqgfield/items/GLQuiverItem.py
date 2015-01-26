@@ -4,6 +4,7 @@ from pycuda.compiler import SourceModule
 from pyqgfield.items import GLArrowItem
 from pyqtgraph.opengl.GLGraphicsItem import GLGraphicsItem
 from numpy import *
+import pyqtgraph as pg
 import pyqgfield
 import logging
 import time
@@ -21,11 +22,13 @@ class GLQuiverItem(GLGraphicsItem):
         vectors             (N,3) array vectors[i]=[vx_i,vy_i,vz_i] specifying the
                             vector placed at pts[i]
         logged              bool determining if this session be logged to file
+        ha                  bool determining if this quiver does hardware accelerated calculations
         ============== =====================================================
         """
         self.arrows=[]
         GLGraphicsItem.__init__(self)
         self.logged=kwds.pop('logged') if ('logged' in kwds) else False
+        self.ha=kwds.pop('ha') if ('ha' in kwds) else False
         self.setData(**kwds)
         
         
@@ -75,10 +78,13 @@ class GLQuiverItem(GLGraphicsItem):
             start=time.time()
             i=0
             for vector in vectors:
-                curTimes=self.arrows[i].updateData(vector=vector)
-                for opt in ['mapToLocal','cross','calcAngle','rotate','scl']:
-                    times[opt]+=curTimes.pop(opt)*1000
-                i+=1
+                if self.ha:
+                    self._haSet(vectors)
+                else:
+                    curTimes=self.arrows[i].updateData(vector=vector)
+                    for opt in ['mapToLocal','cross','calcAngle','rotate','scl']:
+                        times[opt]+=curTimes.pop(opt)*1000
+                    i+=1
             end=time.time()-start
             for opt in times:
                 log.debug('%d %s steps calculated in %d ms',len(self.arrows),opt,times[opt]*1000)
@@ -87,11 +93,47 @@ class GLQuiverItem(GLGraphicsItem):
         self.update()
         return times
             
-    
+    #experimental function for hardware accelerated updates
     def _haSet(self, vectors=[]):
+        log.info('Attempting hardware accelerated setting...')
+        
+        #extract arrow vectors from self.arrows and put into a gpu vector
+        vecs=vstack([append(arrow.getVector(),1).astype(float32) for arrow in self.arrows])
+        log.debug('Extracted vectors from self.arrows. Vecs:\n%s',str(vecs)) if self.logged else None
+        vecs_gpu=cuda.mem_alloc(vecs.nbytes)
+        cuda.memcpy_htod(vecs_gpu, vecs)
+        
+        #extract transformation matrix and put into gpu vector
+        transMat=pg.transformToArray(self.viewTransform().inverted()[0]).astype(float32)
+        log.debug('Extracted inverted transformation matrix as:\n%s',str(transMat)) if self.logged else None
+        transMat_gpu=cuda.mem_alloc(transMat.nbytes)
+        cuda.memcpy_htod(transMat_gpu, transMat)
+        
+        #allocate gpu memory for output lvec
+        lvecs_gpu=cuda.mem_alloc(zeros([len(vecs[0]),3]).astype(float32).nbytes)
+        #CUDA kernel module
         mod=SourceModule("""
-            __global__ void transform()
+            __global__ void mapFromParent(float pvec[][4], float mat[4][4], float lvec[][3]){
+                int idx=threadIdx.x;
+                float temp[4];
+                for (i=0; i<4; i++){
+                temp[i]=mat[i][0]*pvec[idx][0]+mat[i][1]*pvec[idx][1]+mat[i][2]*pvec[idx][2]+mat[i][3]*pvec[idx][3]
+                }
+                for (i=0;i<3;i++)
+                    lvec[idx][i]=temp[i]
+            }
         """)
+        #get and run function to map from parent to local coordinates
+        log.debug('Attempting cuda function compile...') if self.logged else None
+        mapFP=mod.get_function("mapFromParent")
+        log.debug('Cuda function compiled!') if self.logged else None
+        log.debug('Attempting cuda function run...') if self.logged else None
+        mapFP(vecs_gpu,transMat_gpu,lvecs_gpu,blocks=(len(vecs[0]),1,1))
+        log.debug('Cuda function ran!') if self.logged else None
+        log.info('Extracting result from gpu memory...') if self.logged else None
+        lvecs=empty([len(vecs[0]),3])
+        cuda.memcpy_dtoh(lvecs,lvecs_gpu)
+        log.debug('Extracted results from gpu memory as:\n%s',str(lvecs)) if self.logged else None
     
     
     
