@@ -39,7 +39,7 @@ class GLQuiverItem(GLGraphicsItem):
         if 'points' in kwds:
             points=array(kwds.pop('points'))
             #make sure  points is (N,3)
-            if not shape(points)[1]==3:
+            if len(points.shape)!=1 and not shape(points)[1]==3:
                 print('Points must be (N,3) array.')
                 return
             #if self.arrows isn't instantiated, instantiate it from points, and set 
@@ -63,7 +63,7 @@ class GLQuiverItem(GLGraphicsItem):
             }
             vectors=array(kwds.pop('vectors'))
             #make sure vectors is (N,3)
-            if not shape(vectors)[1]==3:
+            if len(vectors.shape)!=1 and not shape(vectors)[1]==3:
                 print('Vectors must be (N,3) array')
                 return
             #make sure vectors is same length as self.arrows
@@ -105,47 +105,65 @@ class GLQuiverItem(GLGraphicsItem):
     def _haSet(self, vectors=[]):
         log.info('Attempting hardware accelerated setting...')
         
-        #extract arrow vectors from self.arrows and put into a gpu vector
-        vecs=vstack([append(arrow.getVector(),1).astype(float32) for arrow in self.arrows])
-        log.debug('Extracted vectors from self.arrows. Vecs:\n%s\n...',str(vecs[0:3])) if self.logged else None
-        vecs_gpu=cuda.mem_alloc(vecs.nbytes)
-        cuda.memcpy_htod(vecs_gpu, vecs)
+        #fetch vectors, transformation matrix, creat temp matrix
+        vecs=vstack([append(vector,1.).astype(float32) for vector in vectors])
+        transMat=vstack([pg.transformToArray(arrow.transform().inverted()[0]) for arrow in self.arrows]).astype(float32)
+        tempMat=empty_like(transMat)
+        log.debug(
+            'Fetched vectors, transformation matrices as:\nVecs:\n%s\n...\nTM\n%s\n...',
+            str(vecs[0:3]),
+            str(transMat)
+        ) if self.logged else None
         
-        #extract transformation matrix and put into gpu vector
-        transMat=pg.transformToArray(self.viewTransform().inverted()[0]).astype(float32)
-        log.debug('Extracted inverted transformation matrix as:\n%s',str(transMat)) if self.logged else None
+        #allocate gpu mem for vectors, transformation matrix, temp matrix
+        vecs_gpu=cuda.mem_alloc(vecs.nbytes)
         transMat_gpu=cuda.mem_alloc(transMat.nbytes)
+        tempMat_gpu=cuda.mem_alloc(tempMat.nbytes)
+        
+        #copy vectors, transformation matrix,to allocated gpu memory
+        cuda.memcpy_htod(vecs_gpu, vecs)
         cuda.memcpy_htod(transMat_gpu, transMat)
         
-        #allocate gpu memory for output lvec
-        lvecs_gpu=cuda.mem_alloc(zeros([len(vecs),3]).astype(float32).nbytes)
+        #log.debug('Empty temp matrix:\n%s\n...',str(tempMat))
+        
         #CUDA kernel module
         mod=SourceModule("""
-            __global__ void mapFromParent(float pvec[][4], float mat[4][4], float lvec[][3]){
-                int idx=threadIdx.x;
-                float temp[4];
-                for (int i=0; i<4; i++){
-                    temp[i]=mat[i][0]*pvec[idx][0]+mat[i][1]*pvec[idx][1]+mat[i][2]*pvec[idx][2]+mat[i][3]*pvec[idx][3];
-                }
-                for (int i=0;i<3;i++)
-                    lvec[idx][i]=temp[i];
+            __global__ void mFP1(float pvec[][4], float transMat[][4], float tempMat[][4]){
+                 int i=threadIdx.x; int j=threadIdx.y;
+                 
+                tempMat[i][j]+=transMat[i][j]*pvec[i/4][j];
+            }
+            __global__ void mFP2(float tempMat[][4], float lvec[][4]){
+                int i=threadIdx.x;
+                for (int j=0;j<4;j++)
+                    lvec[i/4][i%4]+=tempMat[i][j];
             }
         """)
+        
         #get and run gpu function to map from parent to local coordinates
         log.info('Mapping parent vector to local vector coordinates...')
         log.debug('Attempting cuda function compile...') if self.logged else None
-        mapFP=mod.get_function("mapFromParent")
-        log.debug('Cuda function compiled! Attempting cuda function run...') if self.logged else None
-        mapFP(vecs_gpu,transMat_gpu,lvecs_gpu,block=(len(vecs),1,1))
+        mFP1=mod.get_function("mFP1")
+        mFP2=mod.get_function("mFP2")
+        log.debug(
+            'Cuda function compiled! Attempting cuda function run with blocksize %dx4...',
+            len(transMat)) if self.logged else None
+        lvecs_gpu=cuda.mem_alloc(vecs.nbytes)
+        mFP1(vecs_gpu,transMat_gpu,tempMat_gpu,block=(len(transMat),4,1))
+        
+        #log temp matrix
+        cuda.memcpy_dtoh(tempMat,tempMat_gpu)
+        log.debug('Augmented temp matrix:\n%s\n...',str(tempMat))
+        mFP2(tempMat_gpu,lvecs_gpu,block=(len(transMat),1,1))
         log.debug('Cuda function ran!') if self.logged else None
         
         #retrieve results from gpu memory
         log.info('Extracting result from gpu memory...') if self.logged else None
-        lvecs=empty([len(vecs),3]).astype(float32)
+        lvecs=empty_like(vecs)
         log.debug('Created container for vectors in local memory as:\n%s\n...',str(lvecs[0:3])) if self.logged else None
         cuda.memcpy_dtoh(lvecs,lvecs_gpu)
         log.debug('Extracted results from gpu memory as:\n%s\n...',str(lvecs[0:3])) if self.logged else None
-        log.info('Succesful map')
+        log.info('Successful map')
     
     
     
